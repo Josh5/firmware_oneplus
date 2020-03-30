@@ -24,7 +24,7 @@ function red() {
 }
 
 function yellow() {
-  echo -e "$1 \033[93m$2\033[0m"
+  echo -e "\033[93m$1\033[0m $2"
 }
 
 function brown() {
@@ -37,11 +37,11 @@ function purple() {
 
 green "\n\n\t\t ONEPLUS FIRMWARE EXTRACTOR\n\tAuthor: Angela https://github.com/angela-d/firmware_oneplus\n\tOriginally forked from Koenkk https://github.com/Koenkk\n\n"
 bold "Please specify which device you'll be generating a flashable firmware zip for:"
-yellow "Oneplus 3:" "3"
-yellow "Oneplus 3T:" "3T"
-yellow "Oneplus 5:" "5"
-yellow "Oneplus 5T:" "5T\n"
-
+yellow "3)" "  Oneplus 3" 
+yellow "3T)" " Oneplus 3T" 
+yellow "5)" "  Oneplus 5" 
+yellow "5T)" " Oneplus 5T"
+echo
 bold "Type only the version number (without the colon) - case sensitive: "
 read -r VERSION
 
@@ -51,26 +51,40 @@ then
   exit 0
 fi
 
+# Get Lowercase and upper case versions
+UPPERCASE_VERSION="${VERSION^^}"
+LOWERCASE_VERSION="${VERSION,,}"
+
+SRC_FILES=$(dirname $(realpath ${BASH_SOURCE}))
+
+if [[ ! -z ${1} ]]; then
+  OXYGEN_PATH=${1}
+else
 bold "\nSpecify the full local path to your OxygenOS .zip obtained from the Oneplus site.\nie. $HOME/Downloads/Oneplus.zip:"
 read -r OXYGEN_PATH
+fi
+DEST_DIR=${OXYGEN_PATH%/*}
+TEM_DIR=${DEST_DIR}/oxygen_firmware_tmp
 
 brown "\nValidating firmware versions, hold on a sec...\n"
 
 # make sure this is the right filetype
-if [[ ! "$OXYGEN_PATH" =~ \.zip$ ]];
+if [[ ! "${OXYGEN_PATH}" =~ \.zip$ ]];
 then
   red "Invalid filetype; the image must be in .zip format."
   exit 1
 fi
 
-unzip -q "$OXYGEN_PATH" META-INF/com/google/android/* -d "tmp/"
+WORKING_DIR=$(dirname $(realpath ${OXYGEN_PATH}))
+pushd ${WORKING_DIR}
+unzip -q "${OXYGEN_PATH}" META-INF/com/google/android/* -d "${TEM_DIR}/"
 
 # compare the version with the update script
 # shellcheck disable=SC2126
-if [ "$(grep "\"OnePlus $VERSION\"" -R tmp/META-INF/com/google/android/ | wc -l)" == '0' ];
+if [ "$(grep -i "\"OnePlus ${UPPERCASE_VERSION}\"" -R ${TEM_DIR}/META-INF/com/google/android/ | wc -l)" == '0' ];
 then
-  red "The supplied .zip doesn't appear to be for the Oneplus $VERSION\nPlease double-check the image you downloaded and try again."
-  cleanup "tmp"
+  red "The supplied .zip doesn't appear to be for the Oneplus ${UPPERCASE_VERSION}\nPlease double-check the image you downloaded and try again."
+  cleanup "${TEM_DIR}"
   exit 1
 fi
 
@@ -79,22 +93,22 @@ red "STARTING EXTRACTION - Do not interrupt!\n\tThe terminal will prompt when co
 
 # Extract ROM
 echo "Extracting from the source image..."
-unzip -q "$OXYGEN_PATH" firmware-update/* -d "tmp/"
-unzip -jq "$OXYGEN_PATH" RADIO/* -d "tmp/firmware-update/"
+unzip -q "${OXYGEN_PATH}" firmware-update/* -d "${TEM_DIR}/"
+unzip -jq "${OXYGEN_PATH}" RADIO/* -d "${TEM_DIR}/firmware-update/"
 
 echo "Copying update script from this repo, so only modem + firmware is parsed during flash..."
-# force lowercase in the event 3T is typed; destination won't match
-LOWERCASE="${VERSION,,}"
 
 # bypass cp -i alias to overwrite destination update script supplied by oneplus zip
-yes | cp update/op"$LOWERCASE"/updater-script tmp/META-INF/com/google/android/updater-script
+yes | cp ${SRC_FILES}/update/op${LOWERCASE_VERSION}/updater-script ${TEM_DIR}/META-INF/com/google/android/updater-script
 
 echo "Finalizing flashable zip..."
-OUTFILE=firmware-update-oneplus$VERSION
+OTA_VERSION_NAME="$( unzip -qc "${OXYGEN_PATH}" META-INF/com/android/metadata | grep ota_version | cut -d"=" -f2 | awk -F "_" '{print $1"_"$2}' )"
+OUTFILE="${OTA_VERSION_NAME}-(firmware_extract).zip"
 
-cd tmp || echo "Something went wrong..."
-zip -9 -rq ../"$OUTFILE" -- ./*
+cd ${TEM_DIR} || echo "Something went wrong..."
+zip -9 -rq "${DEST_DIR}/${OUTFILE}" -- ./*
 cd ..
-cleanup "tmp"
+cleanup "${TEM_DIR}"
+popd
 echo -e "\n\tDONE!\n\n"
-purple "Find your flashable zip at: $PWD/$OUTFILE.zip"
+purple "Find your flashable zip at: ${DEST_DIR}/${OUTFILE}"
